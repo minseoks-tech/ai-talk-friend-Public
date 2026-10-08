@@ -262,14 +262,14 @@ button{cursor:pointer}
     <p class="small" id="connClaude" hidden>Claude 계정으로 연결돼요. 처음 말을 걸 때 한 번 허용할지 물어봐요. 키는 필요 없어요.</p>
     <div id="connGemini" hidden>
       <div class="field"><label for="s_key">Gemini API 키</label><input id="s_key" type="password" autocomplete="off" placeholder="AIza…"></div>
-      <div class="field" style="margin-top:10px"><label for="s_model">모델 이름</label><input id="s_model" type="text"></div>
+      <div class="field" style="margin-top:10px"><label for="s_model">모델 이름</label><input id="s_model" type="text" placeholder="gemini-flash-latest"></div>
       <p class="small" style="margin-top:8px">무료 키는 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 받아요. 키는 이 기기에만 저장되고 파일 안에는 들어가지 않아요. 결제 계정에는 한 달 사용 한도를 걸어 두세요.</p>
     </div>
 
     <h3>대화 기록</h3>
     <p class="small">기록은 이 기기 안에만 저장돼요.</p>
     <button class="btn-ghost danger" type="button" id="clearBtn">기록 지우고 새로 시작</button>
-    <p class="small">앱 버전 1.0.1 · 인터넷에 연결돼 있으면 열 때마다 새 버전을 받아요.</p>
+    <p class="small">앱 버전 1.0.2 · 인터넷에 연결돼 있으면 열 때마다 새 버전을 받아요.</p>
 
     <div class="row">
       <button class="btn-ghost" type="button" id="cancelBtn">닫기</button>
@@ -283,7 +283,8 @@ button{cursor:pointer}
 "use strict";
 const $ = s => document.querySelector(s);
 const LANGS = {"영어":"en-US","일본어":"ja-JP","중국어":"zh-CN","스페인어":"es-ES","프랑스어":"fr-FR","독일어":"de-DE","베트남어":"vi-VN"};
-const DEFAULTS = {who:"성인",age:"35",lang:"영어",level:"단어 몇 개 앎",likes:"여행, 요리",minutes:"15",friend:"Emma",persona:"차분하고 다정함",repeatAmt:"보통",rate:0.88,showKo:true,soundFirst:true,apiKey:"",model:"gemini-2.5-flash"};
+const DEFAULTS = {who:"성인",age:"35",lang:"영어",level:"단어 몇 개 앎",likes:"여행, 요리",minutes:"15",friend:"Emma",persona:"차분하고 다정함",repeatAmt:"보통",rate:0.88,showKo:true,soundFirst:true,apiKey:"",model:"gemini-flash-latest"};
+const LATEST_MODEL = "gemini-flash-latest";  // 구글이 새 Flash 모델을 내면 이 이름이 자동으로 새 모델을 가리켜요
 
 const store = {
   get(k,d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
@@ -292,6 +293,7 @@ const store = {
 };
 
 let S = Object.assign({}, DEFAULTS, store.get("kf.settings", {}));
+if (!S.model || S.model === "gemini-2.5-flash") S.model = LATEST_MODEL;  // 옛 기본값에서 옮기기
 let log = store.get("kf.log", []);       // {who:'me'|'ai'|'wrap'|'fix', ...}
 let started = log.length > 0;
 let busy = false;
@@ -385,9 +387,22 @@ async function ask(sys, msgs){
     if (last && last.role === role) last.parts[0].text += "\n" + m.content;
     else merged.push({role, parts:[{text:m.content}]});
   }
+  try {
+    return await callGemini(S.model, sys, merged);
+  } catch(e){
+    // 쓰던 모델이 없어졌으면 구글의 최신 Flash 모델로 바꿔서 한 번 더 시도해요.
+    const gone = e && e.code === "http" && (e.status === 404 || /not found|not supported|deprecated|no longer/i.test(e.message || ""));
+    if (gone && S.model !== LATEST_MODEL){
+      S.model = LATEST_MODEL; store.set("kf.settings", S);
+      return await callGemini(LATEST_MODEL, sys, merged);
+    }
+    throw e;
+  }
+}
+async function callGemini(model, sys, merged){
   let res;
   try {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(S.model)}:generateContent`, {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method:"POST",
       headers:{"Content-Type":"application/json","x-goog-api-key":S.apiKey},
       body: JSON.stringify({systemInstruction:{parts:[{text:sys}]}, contents:merged, generationConfig:{responseMimeType:"application/json", temperature:0.8}})
