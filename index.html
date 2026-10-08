@@ -142,6 +142,9 @@ button{cursor:pointer}
 @keyframes pulse{0%{transform:scale(.95);opacity:1}100%{transform:scale(1.15);opacity:0}}
 .mic:disabled{opacity:.45;cursor:default}
 .hint{justify-self:end;font-size:12px;color:var(--muted);text-align:right;max-width:110px}
+.microw.embed{grid-template-columns:auto 1fr}
+.microw.embed .mic{display:none}
+.microw.embed .hint{max-width:none;font-size:13px}
 
 /* avatar */
 .face .eye{transform-origin:center;transform-box:fill-box;animation:blink 5s infinite}
@@ -269,7 +272,7 @@ button{cursor:pointer}
     <h3>대화 기록</h3>
     <p class="small">기록은 이 기기 안에만 저장돼요.</p>
     <button class="btn-ghost danger" type="button" id="clearBtn">기록 지우고 새로 시작</button>
-    <p class="small">앱 버전 1.0.2 · 인터넷에 연결돼 있으면 열 때마다 새 버전을 받아요.</p>
+    <p class="small">앱 버전 1.0.3 · 인터넷에 연결돼 있으면 열 때마다 새 버전을 받아요.</p>
 
     <div class="row">
       <button class="btn-ghost" type="button" id="cancelBtn">닫기</button>
@@ -460,7 +463,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- speech in ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, micBlocked = !SR || !!window.claude;
+const EMBED = !!window.claude;              // Claude 앱 안에서는 페이지가 마이크를 쓸 수 없어요
+let rec = null, micBlocked = !SR || EMBED;
+let pendingTag = null;                       // 키보드로 따라 말할 때 붙일 표시
 function micHint(t){ $("#micHint").textContent = t; }
 function listen(code, onFinal){
   if (micBlocked){ micHint("마이크를 못 써요. 키보드의 마이크로 말해요"); $("#typeIn").focus(); return; }
@@ -479,7 +484,7 @@ function listen(code, onFinal){
   rec.onerror = ev => {
     gotError = true;
     if (ev.error === "not-allowed" || ev.error === "service-not-allowed" || ev.error === "audio-capture"){
-      micBlocked = true; micHint("마이크가 막혀 있어요. 키보드의 마이크나 글로 해요");
+      micBlocked = true; micHint("마이크 권한이 꺼져 있어요. 휴대폰 설정에서 이 앱의 마이크를 허용해 주세요");
     } else if (ev.error === "no-speech") micHint("소리가 안 들렸어요. 다시 눌러요");
     else micHint("다시 눌러 말해요");
   };
@@ -517,6 +522,14 @@ function aiBubble(x, veiled){
     const rb = el("div", "rbtns");
     rb.append(btn("btn-sun", ICON_MIC + "따라 말하기", null, () => {
       if (busy) return;
+      if (micBlocked){
+        pendingTag = "따라 말함"; micLang = "tg"; syncSeg();
+        const inp = $("#typeIn");
+        inp.placeholder = "키보드의 마이크를 눌러 따라 말해요";
+        inp.focus(); setStep("speak");
+        micHint("키보드의 마이크 버튼을 누르고 따라 말한 뒤 → 를 눌러요");
+        return;
+      }
       listen(tgCode(), t => send(t, "따라 말함"));
     }));
     rb.append(btn("chip", ICON_SPK + "다시 듣기", null, () => { stopSpeaking(); speak(x.repeat, tgCode()); }));
@@ -645,7 +658,7 @@ async function playAI(x, bubble){
   bubble.classList.remove("veiled");
   setStep(x.repeat ? "speak" : "read");
   if (x.repeat){ micLang = "tg"; syncSeg(); micHint("노란 칸의 버튼을 눌러 따라 말해요"); }
-  else micHint("누르고 말해요");
+  else micHint(EMBED ? "여기서는 키보드의 마이크 버튼으로 말해요. 큰 마이크는 홈 화면 앱에서 돼요." : micBlocked ? "키보드의 마이크나 글로 해요" : "누르고 말해요");
   idleStatus();
 }
 async function getReply(){
@@ -751,7 +764,12 @@ $("#micBtn").addEventListener("click", () => {
   if (busy) return;
   listen(micLang === "ko" ? "ko-KR" : tgCode(), t => send(t));
 });
-$("#typeForm").addEventListener("submit", e => { e.preventDefault(); const v = $("#typeIn").value; $("#typeIn").value = ""; send(v); });
+$("#typeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("#typeIn").value; $("#typeIn").value = "";
+  const tag = pendingTag; pendingTag = null;
+  send(v, tag || undefined);
+});
 $("#wrapBtn").addEventListener("click", () => wrapUp(false));
 
 /* ---------- time limit ---------- */
@@ -806,7 +824,10 @@ $("#sheet").addEventListener("submit", e => {
 /* ---------- boot ---------- */
 $("#fname").textContent = S.friend;
 syncSeg(); renderAll(); idleStatus();
-if (micBlocked) micHint(SR ? "키보드의 마이크로 말해요" : "글로 써 주세요");
+if (EMBED){
+  $(".microw").classList.add("embed");
+  micHint("여기서는 키보드의 마이크 버튼으로 말해요. 큰 마이크는 홈 화면 앱에서 돼요.");
+} else if (micBlocked) micHint("이 브라우저는 음성 인식이 안 돼요. 키보드의 마이크나 글로 해요");
 detecting = (async () => {
   const c = window.claude;
   if (c && typeof c.use === "function"){
