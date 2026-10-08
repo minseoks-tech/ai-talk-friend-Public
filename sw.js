@@ -1,5 +1,5 @@
 // 버전을 바꾸면 폰의 옛 캐시가 지워져요.
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const CACHE = "talk-friend-" + VERSION;
 const CORE = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
